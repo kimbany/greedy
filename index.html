@@ -473,6 +473,7 @@
             });
 
             const btn = document.getElementById('btnAction');
+            btn.disabled = false;
             if (isEditing) {
                 btn.textContent = '저장하기';
                 btn.className = 'btn-save';

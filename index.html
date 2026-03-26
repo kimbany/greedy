@@ -316,10 +316,9 @@
         </div>
     </div>
 
-    <!-- Firebase SDK (compat 버전 - 빌드 도구 없이 사용) -->
+    <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
 
     <script>
         // Firebase 초기화
@@ -336,7 +335,6 @@
 
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
-        const storage = firebase.storage();
 
         // 강아지 기본 데이터
         const dogIds = ['elly', 'peak'];
@@ -524,31 +522,30 @@
             if (!file) return;
 
             const progressEl = document.getElementById('uploadProgress');
-            progressEl.textContent = '업로드 중...';
+            progressEl.textContent = '사진 처리 중...';
 
-            // Firebase Storage에 업로드
-            const storageRef = storage.ref('dogs/' + currentDogId + '/photo.jpg');
-            const uploadTask = storageRef.put(file);
+            // 이미지 리사이즈 후 base64로 DB에 직접 저장 (Storage 불필요)
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const maxSize = 400;
+                    let w = img.width, h = img.height;
+                    if (w > h) { h = h * maxSize / w; w = maxSize; }
+                    else { w = w * maxSize / h; h = maxSize; }
+                    canvas.width = w;
+                    canvas.height = h;
+                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                    const base64 = canvas.toDataURL('image/jpeg', 0.7);
 
-            uploadTask.on('state_changed',
-                (snapshot) => {
-                    const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-                    progressEl.textContent = `업로드 중... ${percent}%`;
-                },
-                (error) => {
-                    progressEl.textContent = '업로드 실패!';
-                    console.error('Upload error:', error);
-                },
-                () => {
-                    // 업로드 완료 → 다운로드 URL 가져오기
-                    uploadTask.snapshot.ref.getDownloadURL().then(url => {
-                        progressEl.textContent = '';
-                        // DB에 사진 URL 저장
-                        db.ref('dogs/' + currentDogId + '/photo').set(url);
-                    });
-                }
-            );
-
+                    db.ref('dogs/' + currentDogId + '/photo').set(base64)
+                        .then(() => { progressEl.textContent = ''; })
+                        .catch(err => { progressEl.textContent = '실패: ' + err.message; });
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
             event.target.value = '';
         }
 

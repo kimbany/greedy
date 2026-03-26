@@ -26,6 +26,13 @@
             text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
         }
 
+        .loading {
+            text-align: center;
+            color: #e17055;
+            font-size: 1.3em;
+            margin-top: 60px;
+        }
+
         .dogs-container {
             display: flex;
             justify-content: center;
@@ -260,6 +267,11 @@
             opacity: 0.9;
         }
 
+        .btn-save:disabled, .btn-edit:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .paw-print {
             text-align: center;
             margin-top: 40px;
@@ -270,12 +282,20 @@
         .hidden-input {
             display: none;
         }
+
+        .upload-progress {
+            text-align: center;
+            color: #e17055;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
 
     <h1>Our Puppies</h1>
 
+    <div class="loading" id="loadingMsg">Loading...</div>
     <div class="dogs-container" id="dogsContainer"></div>
 
     <div class="paw-print">&#128062; &#128062; &#128062;</div>
@@ -288,6 +308,7 @@
                 <span id="modalPhotoPlaceholder"></span>
                 <button class="photo-upload-btn" id="photoUploadBtn" onclick="triggerPhotoUpload()">&#128247;</button>
             </div>
+            <div class="upload-progress" id="uploadProgress"></div>
             <input type="file" accept="image/*" class="hidden-input" id="photoInput" onchange="handlePhotoUpload(event)">
             <h2 id="modalTitle"></h2>
             <div class="profile-info" id="profileInfo"></div>
@@ -295,26 +316,36 @@
         </div>
     </div>
 
-    <script>
-        const dogs = [
-            {
-                name: '엘리',
-                age: '',
-                nickname: '',
-                gender: '',
-                owner: '',
-                photo: ''
-            },
-            {
-                name: '피크',
-                age: '',
-                nickname: '',
-                gender: '',
-                owner: '',
-                photo: ''
-            }
-        ];
+    <!-- Firebase SDK (compat 버전 - 빌드 도구 없이 사용) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
 
+    <script>
+        // Firebase 초기화
+        const firebaseConfig = {
+            apiKey: "AIzaSyCiUJtCqbehhR0wvsyG-b83ZlKmSmjkbBs",
+            authDomain: "greedy-16c7d.firebaseapp.com",
+            databaseURL: "https://greedy-16c7d-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "greedy-16c7d",
+            storageBucket: "greedy-16c7d.firebasestorage.app",
+            messagingSenderId: "450330915711",
+            appId: "1:450330915711:web:e58d9917aacb9a031b604a",
+            measurementId: "G-GRX162QFRY"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        const storage = firebase.storage();
+
+        // 강아지 기본 데이터
+        const dogIds = ['elly', 'peak'];
+        const defaultDogs = {
+            elly: { name: '엘리', age: '', nickname: '', gender: '', owner: '', photo: '' },
+            peak: { name: '피크', age: '', nickname: '', gender: '', owner: '', photo: '' }
+        };
+
+        let dogs = {};
         const fields = [
             { key: 'name', label: '이름' },
             { key: 'age', label: '나이' },
@@ -323,44 +354,52 @@
             { key: 'owner', label: '주인' }
         ];
 
-        const defaultEmojis = ['&#128054;', '&#128021;'];
+        const defaultEmojis = { elly: '&#128054;', peak: '&#128021;' };
 
-        // localStorage에서 저장된 데이터 불러오기
-        function loadData() {
-            const saved = localStorage.getItem('dogProfiles');
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                parsed.forEach((savedDog, i) => {
-                    if (dogs[i]) {
-                        Object.assign(dogs[i], savedDog);
-                    }
-                });
-            }
-        }
-
-        function saveData() {
-            localStorage.setItem('dogProfiles', JSON.stringify(dogs));
-        }
-
-        loadData();
-
-        let currentDog = null;
+        let currentDogId = null;
         let isEditing = false;
+
+        // Firebase에서 데이터 실시간 불러오기
+        db.ref('dogs').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                dogs = data;
+                // 기본값 보충
+                dogIds.forEach(id => {
+                    if (!dogs[id]) dogs[id] = { ...defaultDogs[id] };
+                });
+            } else {
+                // 최초 접속: 기본 데이터 저장
+                dogs = JSON.parse(JSON.stringify(defaultDogs));
+                db.ref('dogs').set(dogs);
+            }
+
+            document.getElementById('loadingMsg').style.display = 'none';
+            renderCards();
+
+            // 모달이 열려있으면 프로필도 업데이트
+            if (currentDogId !== null) {
+                renderProfile();
+            }
+        });
 
         function renderCards() {
             const container = document.getElementById('dogsContainer');
             container.innerHTML = '';
 
-            dogs.forEach((dog, i) => {
+            dogIds.forEach(id => {
+                const dog = dogs[id];
+                if (!dog) return;
+
                 const card = document.createElement('div');
                 card.className = 'dog-card';
-                card.onclick = () => openProfile(i);
+                card.onclick = () => openProfile(id);
 
                 let photoHTML;
                 if (dog.photo) {
                     photoHTML = `<div class="dog-photo"><img src="${dog.photo}" alt="${dog.name}"></div>`;
                 } else {
-                    photoHTML = `<div class="dog-photo">${defaultEmojis[i]}</div>`;
+                    photoHTML = `<div class="dog-photo">${defaultEmojis[id]}</div>`;
                 }
 
                 card.innerHTML = `
@@ -371,26 +410,28 @@
             });
         }
 
-        function openProfile(index) {
-            currentDog = index;
+        function openProfile(id) {
+            currentDogId = id;
             isEditing = false;
+            document.getElementById('uploadProgress').textContent = '';
             renderProfile();
             document.getElementById('modalOverlay').classList.add('active');
         }
 
         function closeProfile() {
             document.getElementById('modalOverlay').classList.remove('active');
-            currentDog = null;
+            currentDogId = null;
             isEditing = false;
         }
 
         function renderProfile() {
-            const dog = dogs[currentDog];
+            const dog = dogs[currentDogId];
+            if (!dog) return;
+
             const modalPhoto = document.getElementById('modalPhoto');
             const placeholder = document.getElementById('modalPhotoPlaceholder');
             const uploadBtn = document.getElementById('photoUploadBtn');
 
-            // 기존 이미지 제거
             const existingImg = modalPhoto.querySelector('img');
             if (existingImg) existingImg.remove();
 
@@ -401,7 +442,7 @@
                 modalPhoto.insertBefore(img, placeholder);
                 placeholder.style.display = 'none';
             } else {
-                placeholder.innerHTML = defaultEmojis[currentDog];
+                placeholder.innerHTML = defaultEmojis[currentDogId];
                 placeholder.style.display = 'block';
             }
 
@@ -451,15 +492,27 @@
         }
 
         function saveProfile() {
+            const btn = document.getElementById('btnAction');
+            btn.disabled = true;
+            btn.textContent = '저장 중...';
+
+            const updates = {};
             const inputs = document.querySelectorAll('.edit-input');
             inputs.forEach(input => {
-                dogs[currentDog][input.dataset.key] = input.value;
+                updates[input.dataset.key] = input.value;
             });
 
-            saveData();
-            isEditing = false;
-            renderProfile();
-            renderCards();
+            // Firebase에 저장
+            db.ref('dogs/' + currentDogId).update(updates)
+                .then(() => {
+                    isEditing = false;
+                    renderProfile();
+                })
+                .catch(err => {
+                    alert('저장 실패: ' + err.message);
+                    btn.disabled = false;
+                    btn.textContent = '저장하기';
+                });
         }
 
         function triggerPhotoUpload() {
@@ -470,14 +523,32 @@
             const file = event.target.files[0];
             if (!file) return;
 
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                dogs[currentDog].photo = e.target.result;
-                saveData();
-                renderProfile();
-                renderCards();
-            };
-            reader.readAsDataURL(file);
+            const progressEl = document.getElementById('uploadProgress');
+            progressEl.textContent = '업로드 중...';
+
+            // Firebase Storage에 업로드
+            const storageRef = storage.ref('dogs/' + currentDogId + '/photo.jpg');
+            const uploadTask = storageRef.put(file);
+
+            uploadTask.on('state_changed',
+                (snapshot) => {
+                    const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+                    progressEl.textContent = `업로드 중... ${percent}%`;
+                },
+                (error) => {
+                    progressEl.textContent = '업로드 실패!';
+                    console.error('Upload error:', error);
+                },
+                () => {
+                    // 업로드 완료 → 다운로드 URL 가져오기
+                    uploadTask.snapshot.ref.getDownloadURL().then(url => {
+                        progressEl.textContent = '';
+                        // DB에 사진 URL 저장
+                        db.ref('dogs/' + currentDogId + '/photo').set(url);
+                    });
+                }
+            );
+
             event.target.value = '';
         }
 
@@ -490,9 +561,6 @@
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') closeProfile();
         });
-
-        // 초기 렌더링
-        renderCards();
     </script>
 
 </body>
